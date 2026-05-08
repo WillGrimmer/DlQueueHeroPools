@@ -7,6 +7,10 @@ const HEROES = require('./heroes');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Heroes added before the role feature were stored as plain strings.
+// This converts them to { name, role: null } so all downstream code is uniform.
+const normalize = (h) => (typeof h === 'string' ? { name: h, role: null } : h);
+
 // Deferred response: acknowledge immediately, then edit with measured latency.
 // This avoids negative values caused by clock skew between Discord's servers and ours.
 async function handlePing(interaction, res) {
@@ -38,7 +42,7 @@ async function handleAdd(interaction, res) {
 
   const userRef = db.collection('users').doc(userId);
   const doc = await userRef.get();
-  const heroes = doc.exists ? doc.data().heroes ?? [] : [];
+  const heroes = (doc.exists ? doc.data().heroes ?? [] : []).map(normalize);
 
   if (heroes.some((h) => h.name === heroName)) {
     return res.json({
@@ -60,7 +64,7 @@ async function handleRemove(interaction, res) {
 
   const userRef = db.collection('users').doc(userId);
   const doc = await userRef.get();
-  const heroes = doc.exists ? doc.data().heroes ?? [] : [];
+  const heroes = (doc.exists ? doc.data().heroes ?? [] : []).map(normalize);
 
   if (!heroes.some((h) => h.name === heroName)) {
     return res.json({
@@ -83,7 +87,7 @@ async function handlePool(interaction, res) {
   const username = targetUser?.global_name ?? targetUser?.username ?? `<@${targetId}>`;
 
   const doc = await db.collection('users').doc(targetId).get();
-  const heroes = doc.exists ? doc.data().heroes ?? [] : [];
+  const heroes = (doc.exists ? doc.data().heroes ?? [] : []).map(normalize);
 
   if (heroes.length === 0) {
     return res.json({
@@ -117,7 +121,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.DISCORD_PUBLIC_KEY), a
     let pool = HEROES;
     if (interaction.data.name === 'remove') {
       const doc = await db.collection('users').doc(userId).get();
-      pool = doc.exists ? (doc.data().heroes ?? []).map((h) => h.name) : [];
+      pool = (doc.exists ? doc.data().heroes ?? [] : []).map((h) => normalize(h).name);
     }
 
     const choices = pool
