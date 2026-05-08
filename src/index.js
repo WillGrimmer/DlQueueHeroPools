@@ -28,8 +28,15 @@ async function handlePing(interaction, res) {
 }
 
 async function handleAdd(interaction, res) {
-  const heroName = interaction.data.options.find((o) => o.name === 'hero').value;
-  const role = interaction.data.options.find((o) => o.name === 'role').value;
+  const heroName = interaction.data.options.find((o) => o.name === 'hero')?.value;
+  const role = interaction.data.options.find((o) => o.name === 'role')?.value;
+
+  if (!heroName || !role) {
+    return res.json({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: { content: '❌ Please provide both a hero and a role.', flags: 64 },
+    });
+  }
   // User ID lives under member.user in guild contexts, user at the top level in DMs
   const userId = interaction.member?.user?.id ?? interaction.user?.id;
 
@@ -106,49 +113,51 @@ async function handlePool(interaction, res) {
 }
 
 app.post('/interactions', verifyKeyMiddleware(process.env.DISCORD_PUBLIC_KEY), async (req, res) => {
-  const interaction = req.body;
+  try {
+    const interaction = req.body;
 
-  if (interaction.type === InteractionType.PING) {
-    return res.json({ type: InteractionResponseType.PONG });
-  }
-
-  // Autocomplete: /add filters the full hero list; /remove filters only the user's current pool
-  if (interaction.type === InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE) {
-    const focused = interaction.data.options.find((o) => o.focused);
-    const query = focused?.value?.toLowerCase() ?? '';
-    const userId = interaction.member?.user?.id ?? interaction.user?.id;
-
-    let pool = HEROES;
-    if (interaction.data.name === 'remove') {
-      const doc = await db.collection('users').doc(userId).get();
-      pool = (doc.exists ? doc.data().heroes ?? [] : []).map((h) => normalize(h).name);
+    if (interaction.type === InteractionType.PING) {
+      return res.json({ type: InteractionResponseType.PONG });
     }
 
-    const choices = pool
-      .filter((h) => h.toLowerCase().includes(query))
-      .slice(0, 25) // Discord caps autocomplete at 25 choices
-      .map((h) => ({ name: h, value: h }));
-    return res.json({ type: 8, data: { choices } });
-  }
+    // Autocomplete: /add filters the full hero list; /remove filters only the user's current pool
+    if (interaction.type === InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE) {
+      const focused = interaction.data.options.find((o) => o.focused);
+      const query = focused?.value?.toLowerCase() ?? '';
+      const userId = interaction.member?.user?.id ?? interaction.user?.id;
 
-  if (interaction.type === InteractionType.APPLICATION_COMMAND) {
-    try {
+      let pool = HEROES;
+      if (interaction.data.name === 'remove') {
+        const doc = await db.collection('users').doc(userId).get();
+        pool = (doc.exists ? doc.data().heroes ?? [] : []).map((h) => normalize(h).name);
+      }
+
+      const choices = pool
+        .filter((h) => h.toLowerCase().includes(query))
+        .slice(0, 25) // Discord caps autocomplete at 25 choices
+        .map((h) => ({ name: h, value: h }));
+      return res.json({ type: 8, data: { choices } });
+    }
+
+    if (interaction.type === InteractionType.APPLICATION_COMMAND) {
       switch (interaction.data.name) {
         case 'ping':   return handlePing(interaction, res);
         case 'add':    return handleAdd(interaction, res);
         case 'remove': return handleRemove(interaction, res);
         case 'pool':   return handlePool(interaction, res);
       }
-    } catch (err) {
-      console.error(err);
+    }
+
+    return res.status(400).json({ error: 'Unknown interaction type' });
+  } catch (err) {
+    console.error(err);
+    if (!res.headersSent) {
       return res.json({
         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
         data: { content: '❌ Something went wrong.', flags: 64 },
       });
     }
   }
-
-  return res.status(400).json({ error: 'Unknown interaction type' });
 });
 
 app.listen(PORT, () => console.log(`Bot listening on port ${PORT}`));
