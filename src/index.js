@@ -211,6 +211,8 @@ async function handlePool(interaction, res) {
   });
 }
 
+app.get('/', (_, res) => res.sendStatus(200));
+
 app.post('/interactions', verifyKeyMiddleware(process.env.DISCORD_PUBLIC_KEY), async (req, res) => {
   try {
     const interaction = req.body;
