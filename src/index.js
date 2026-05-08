@@ -159,7 +159,7 @@ async function handleShowAll(interaction, res) {
 
   const lines = [];
   visibleMembers.forEach((member, i) => {
-    const heroes = (docs[i].exists ? docs[i].data().heroes ?? [] : []).map(normalize);
+    const heroes = (docs[i].exists ? docs[i].data().heroes ?? [] : []).map(normalize).filter((h) => h.role === 'Best');
     if (heroes.length === 0) return;
     const name = member.nick ?? member.user.global_name ?? member.user.username;
     const list = heroes.map((h) => `${ROLE_EMOJI[h.role] ?? '⬜'} ${h.name}`).join(', ');
