@@ -7,29 +7,19 @@ A Discord bot for [Deadlock](https://store.steampowered.com/app/1422450/Deadlock
 | Command | Description |
 |---|---|
 | `/ping` | Check bot latency |
-| `/add <hero>` | Add a hero to your pool (autocomplete supported) |
+| `/add <hero> <role>` | Add a hero to your pool with a role of Best or Secondary (autocomplete supported) |
 | `/remove <hero>` | Remove a hero from your pool (autocomplete supported) |
-| `/pool <user>` | View another user's hero pool (only visible to you) |
+| `/pool <user>` | View another user's full hero pool (only visible to you) |
+| `/showall` | Show everyone's Best heroes in the current channel |
 
-## Setup
+## Hosting (Railway)
 
-### Prerequisites
-- Node.js 18+
-- [ngrok](https://ngrok.com/) (or another tunnel for local hosting)
-- A [Discord Application](https://discord.com/developers/applications) with a bot token
-- A [Firebase](https://console.firebase.google.com/) project with Firestore enabled
+The bot is hosted on [Railway](https://railway.app), which keeps the service always-on.
 
-### 1. Install dependencies
-```bash
-npm install
-```
-
-### 2. Configure environment variables
-Copy `.env.example` to `.env` and fill in all values:
-
-```bash
-cp .env.example .env
-```
+### Deploy to Railway
+1. Create a new project at railway.app → **Deploy from GitHub repo**
+2. Select this repository
+3. Add the following environment variables in the Railway dashboard:
 
 | Variable | Where to find it |
 |---|---|
@@ -41,24 +31,25 @@ cp .env.example .env
 | `FIREBASE_CLIENT_EMAIL` | Firebase Console → Project Settings → Service Accounts → Generate new private key |
 | `FIREBASE_PRIVATE_KEY` | Same JSON file as above |
 
-### 3. Register slash commands
+4. Railway auto-detects Node.js and runs `npm start`
+5. Copy the generated Railway URL and set it as the **Interactions Endpoint URL** in the Discord Developer Portal:
+```
+https://<your-railway-url>/interactions
+```
+
+### Register slash commands
+Run once after any command definition change:
 ```bash
 npm run register
 ```
 
-### 4. Start the bot
+## Local Development
+
 ```bash
+npm install
+cp .env.example .env   # fill in values
 npm start
-```
-
-### 5. Expose the server
-```bash
-ngrok http 3000
-```
-
-Set the **Interactions Endpoint URL** in the Discord Developer Portal to:
-```
-https://<your-ngrok-url>/interactions
+ngrok http 3000        # expose locally for testing
 ```
 
 ## Firestore Data Model
@@ -66,7 +57,7 @@ https://<your-ngrok-url>/interactions
 ```
 users/
   {discord_user_id}/
-    heroes: string[]
+    heroes: { name: string, role: "Best" | "Secondary" }[]
 ```
 
 ## Adding or Updating Heroes
