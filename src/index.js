@@ -242,11 +242,11 @@ app.post('/interactions', verifyKeyMiddleware(process.env.DISCORD_PUBLIC_KEY), a
 
     if (interaction.type === InteractionType.APPLICATION_COMMAND) {
       switch (interaction.data.name) {
-        case 'ping':    return handlePing(interaction, res);
-        case 'add':     return handleAdd(interaction, res);
-        case 'remove':  return handleRemove(interaction, res);
-        case 'pool':    return handlePool(interaction, res);
-        case 'showall': return handleShowAll(interaction, res);
+        case 'ping':    return await handlePing(interaction, res);
+        case 'add':     return await handleAdd(interaction, res);
+        case 'remove':  return await handleRemove(interaction, res);
+        case 'pool':    return await handlePool(interaction, res);
+        case 'showall': return await handleShowAll(interaction, res);
       }
     }
 
