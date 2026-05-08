@@ -1,12 +1,12 @@
 const admin = require('firebase-admin');
 
+// Storing the full service account JSON as one env var lets JSON.parse handle
+// the private key newlines correctly — avoids OpenSSL decoding errors from
+// Railway/other hosts mangling \n escape sequences in individual env vars.
+const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+
 admin.initializeApp({
-  credential: admin.credential.cert({
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    // .env stores \n as literal \\n — this restores real newlines in the key
-    privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-  }),
+  credential: admin.credential.cert(serviceAccount),
 });
 
 module.exports = admin.firestore();
