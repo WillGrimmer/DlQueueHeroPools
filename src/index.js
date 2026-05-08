@@ -1,0 +1,140 @@
+require('dotenv').config();
+const express = require('express');
+const { InteractionType, InteractionResponseType, verifyKeyMiddleware } = require('discord-interactions');
+const db = require('./firebase');
+const HEROES = require('./heroes');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Deferred response: acknowledge immediately, then edit with measured latency.
+// This avoids negative values caused by clock skew between Discord's servers and ours.
+async function handlePing(interaction, res) {
+  const start = Date.now();
+  res.json({ type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE });
+  const latency = Date.now() - start;
+  await fetch(
+    `https://discord.com/api/v10/webhooks/${process.env.DISCORD_APPLICATION_ID}/${interaction.token}/messages/@original`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: `🏓 Pong! Latency: **${latency}ms**` }),
+    }
+  );
+}
+
+async function handleAdd(interaction, res) {
+  const heroName = interaction.data.options[0].value;
+  // User ID lives under member.user in guild contexts, user at the top level in DMs
+  const userId = interaction.member?.user?.id ?? interaction.user?.id;
+
+  if (!HEROES.includes(heroName)) {
+    return res.json({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: { content: `❌ **${heroName}** is not a valid hero.`, flags: 64 },
+    });
+  }
+
+  const userRef = db.collection('users').doc(userId);
+  const doc = await userRef.get();
+  const heroes = doc.exists ? doc.data().heroes ?? [] : [];
+
+  if (heroes.includes(heroName)) {
+    return res.json({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: { content: `⚠️ **${heroName}** is already in your pool.`, flags: 64 },
+    });
+  }
+
+  await userRef.set({ heroes: [...heroes, heroName] }, { merge: true });
+  return res.json({
+    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+    data: { content: `✅ Added **${heroName}** to your pool.` },
+  });
+}
+
+async function handleRemove(interaction, res) {
+  const heroName = interaction.data.options[0].value;
+  const userId = interaction.member?.user?.id ?? interaction.user?.id;
+
+  const userRef = db.collection('users').doc(userId);
+  const doc = await userRef.get();
+
+  if (!doc.exists || !(doc.data().heroes ?? []).includes(heroName)) {
+    return res.json({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: { content: `⚠️ **${heroName}** is not in your pool.`, flags: 64 },
+    });
+  }
+
+  const updated = doc.data().heroes.filter((h) => h !== heroName);
+  await userRef.set({ heroes: updated }, { merge: true });
+  return res.json({
+    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+    data: { content: `🗑️ Removed **${heroName}** from your pool.` },
+  });
+}
+
+async function handlePool(interaction, res) {
+  const targetId = interaction.data.options[0].value;
+  // resolved.users is populated by Discord with full user objects for USER-type options
+  const targetUser = interaction.data.resolved?.users?.[targetId];
+  const username = targetUser?.global_name ?? targetUser?.username ?? `<@${targetId}>`;
+
+  const doc = await db.collection('users').doc(targetId).get();
+  const heroes = doc.exists ? doc.data().heroes ?? [] : [];
+
+  if (heroes.length === 0) {
+    return res.json({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      // flags: 64 = ephemeral — only visible to the user who ran the command
+      data: { content: `**${username}** hasn't added any heroes to their pool yet.`, flags: 64 },
+    });
+  }
+
+  const list = heroes.map((h) => `• ${h}`).join('\n');
+  return res.json({
+    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+    data: { content: `**${username}'s hero pool (${heroes.length}):**\n${list}`, flags: 64 },
+  });
+}
+
+app.post('/interactions', verifyKeyMiddleware(process.env.DISCORD_PUBLIC_KEY), async (req, res) => {
+  const interaction = req.body;
+
+  if (interaction.type === InteractionType.PING) {
+    return res.json({ type: InteractionResponseType.PONG });
+  }
+
+  // Autocomplete for /add and /remove — filter hero list by whatever the user has typed
+  if (interaction.type === InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE) {
+    const focused = interaction.data.options.find((o) => o.focused);
+    const query = focused?.value?.toLowerCase() ?? '';
+    const choices = HEROES
+      .filter((h) => h.toLowerCase().includes(query))
+      .slice(0, 25) // Discord caps autocomplete at 25 choices
+      .map((h) => ({ name: h, value: h }));
+    return res.json({ type: 8, data: { choices } });
+  }
+
+  if (interaction.type === InteractionType.APPLICATION_COMMAND) {
+    try {
+      switch (interaction.data.name) {
+        case 'ping':   return handlePing(interaction, res);
+        case 'add':    return handleAdd(interaction, res);
+        case 'remove': return handleRemove(interaction, res);
+        case 'pool':   return handlePool(interaction, res);
+      }
+    } catch (err) {
+      console.error(err);
+      return res.json({
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: { content: '❌ Something went wrong.', flags: 64 },
+      });
+    }
+  }
+
+  return res.status(400).json({ error: 'Unknown interaction type' });
+});
+
+app.listen(PORT, () => console.log(`Bot listening on port ${PORT}`));
