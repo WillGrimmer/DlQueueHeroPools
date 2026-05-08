@@ -78,7 +78,7 @@ async function handleAdd(interaction, res) {
   await userRef.set({ heroes: [...heroes, { name: heroName, role }] }, { merge: true });
   return res.json({
     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-    data: { content: `✅ Added **${heroName}** to your pool as **${role}**.` },
+    data: { content: `✅ Added **${heroName}** to your pool as **${role}**.`, flags: 64 },
   });
 }
 
@@ -100,7 +100,7 @@ async function handleRemove(interaction, res) {
   await userRef.set({ heroes: heroes.filter((h) => h.name !== heroName) }, { merge: true });
   return res.json({
     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-    data: { content: `🗑️ Removed **${heroName}** from your pool.` },
+    data: { content: `🗑️ Removed **${heroName}** from your pool.`, flags: 64 },
   });
 }
 
