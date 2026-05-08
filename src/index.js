@@ -28,7 +28,7 @@ const DISCORD_HEADERS = () => ({
 // timestamp, which uses Discord's clock rather than ours.
 async function handlePing(interaction, res) {
   const start = Date.now();
-  res.json({ type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE });
+  res.json({ type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE, data: { flags: 64 } });
   const latency = Date.now() - start;
   await fetch(
     `https://discord.com/api/v10/webhooks/${process.env.DISCORD_APPLICATION_ID}/${interaction.token}/messages/@original`,
@@ -143,7 +143,7 @@ function canViewChannel(member, channel, guild) {
 
 async function handleShowAll(interaction, res) {
   // Defer immediately — fetching members + Firestore takes longer than Discord's 3s limit
-  res.json({ type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE });
+  res.json({ type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE, data: { flags: 64 } });
 
   const { channel_id, guild_id } = interaction;
   const headers = DISCORD_HEADERS();
