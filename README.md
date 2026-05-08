@@ -26,7 +26,6 @@ The bot is hosted on [Railway](https://railway.app), which keeps the service alw
 | `DISCORD_PUBLIC_KEY` | Discord Developer Portal → General Information |
 | `DISCORD_APPLICATION_ID` | Discord Developer Portal → General Information |
 | `DISCORD_BOT_TOKEN` | Discord Developer Portal → Bot → Reset Token |
-| `DISCORD_GUILD_ID` | Right-click your server in Discord → Copy Server ID (requires Developer Mode) |
 | `FIREBASE_PROJECT_ID` | Firebase Console → Project Settings → General |
 | `FIREBASE_CLIENT_EMAIL` | Firebase Console → Project Settings → Service Accounts → Generate new private key |
 | `FIREBASE_PRIVATE_KEY` | Same JSON file as above |
