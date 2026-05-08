@@ -24,7 +24,8 @@ async function handlePing(interaction, res) {
 }
 
 async function handleAdd(interaction, res) {
-  const heroName = interaction.data.options[0].value;
+  const heroName = interaction.data.options.find((o) => o.name === 'hero').value;
+  const role = interaction.data.options.find((o) => o.name === 'role').value;
   // User ID lives under member.user in guild contexts, user at the top level in DMs
   const userId = interaction.member?.user?.id ?? interaction.user?.id;
 
@@ -39,17 +40,17 @@ async function handleAdd(interaction, res) {
   const doc = await userRef.get();
   const heroes = doc.exists ? doc.data().heroes ?? [] : [];
 
-  if (heroes.includes(heroName)) {
+  if (heroes.some((h) => h.name === heroName)) {
     return res.json({
       type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
       data: { content: `⚠️ **${heroName}** is already in your pool.`, flags: 64 },
     });
   }
 
-  await userRef.set({ heroes: [...heroes, heroName] }, { merge: true });
+  await userRef.set({ heroes: [...heroes, { name: heroName, role }] }, { merge: true });
   return res.json({
     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-    data: { content: `✅ Added **${heroName}** to your pool.` },
+    data: { content: `✅ Added **${heroName}** to your pool as **${role}**.` },
   });
 }
 
@@ -59,16 +60,16 @@ async function handleRemove(interaction, res) {
 
   const userRef = db.collection('users').doc(userId);
   const doc = await userRef.get();
+  const heroes = doc.exists ? doc.data().heroes ?? [] : [];
 
-  if (!doc.exists || !(doc.data().heroes ?? []).includes(heroName)) {
+  if (!heroes.some((h) => h.name === heroName)) {
     return res.json({
       type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
       data: { content: `⚠️ **${heroName}** is not in your pool.`, flags: 64 },
     });
   }
 
-  const updated = doc.data().heroes.filter((h) => h !== heroName);
-  await userRef.set({ heroes: updated }, { merge: true });
+  await userRef.set({ heroes: heroes.filter((h) => h.name !== heroName) }, { merge: true });
   return res.json({
     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
     data: { content: `🗑️ Removed **${heroName}** from your pool.` },
@@ -92,7 +93,8 @@ async function handlePool(interaction, res) {
     });
   }
 
-  const list = heroes.map((h) => `• ${h}`).join('\n');
+  const ROLE_EMOJI = { Best: '🟩', Secondary: '🟨' };
+  const list = heroes.map((h) => `${ROLE_EMOJI[h.role] ?? '⬜'} ${h.name}`).join('\n');
   return res.json({
     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
     data: { content: `**${username}'s hero pool (${heroes.length}):**\n${list}`, flags: 64 },
@@ -106,11 +108,19 @@ app.post('/interactions', verifyKeyMiddleware(process.env.DISCORD_PUBLIC_KEY), a
     return res.json({ type: InteractionResponseType.PONG });
   }
 
-  // Autocomplete for /add and /remove — filter hero list by whatever the user has typed
+  // Autocomplete: /add filters the full hero list; /remove filters only the user's current pool
   if (interaction.type === InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE) {
     const focused = interaction.data.options.find((o) => o.focused);
     const query = focused?.value?.toLowerCase() ?? '';
-    const choices = HEROES
+    const userId = interaction.member?.user?.id ?? interaction.user?.id;
+
+    let pool = HEROES;
+    if (interaction.data.name === 'remove') {
+      const doc = await db.collection('users').doc(userId).get();
+      pool = doc.exists ? (doc.data().heroes ?? []).map((h) => h.name) : [];
+    }
+
+    const choices = pool
       .filter((h) => h.toLowerCase().includes(query))
       .slice(0, 25) // Discord caps autocomplete at 25 choices
       .map((h) => ({ name: h, value: h }));

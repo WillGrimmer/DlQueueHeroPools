@@ -23,6 +23,16 @@ const commands = [
         required: true,
         autocomplete: true,
       },
+      {
+        name: 'role',
+        description: 'Your level with this hero',
+        type: 3, // STRING
+        required: true,
+        choices: [
+          { name: 'Best', value: 'Best' },
+          { name: 'Secondary', value: 'Secondary' },
+        ],
+      },
     ],
   },
   {
