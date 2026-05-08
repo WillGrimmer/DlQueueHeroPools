@@ -8,11 +8,24 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Heroes added before the role feature were stored as plain strings.
-// This converts them to { name, role: null } so all downstream code is uniform.
+// Normalizing on read means all downstream code can assume { name, role } shape.
 const normalize = (h) => (typeof h === 'string' ? { name: h, role: null } : h);
 
+const ROLE_EMOJI = { Best: '🟩', Secondary: '🟨' };
+
+// Permission bits used in canViewChannel
+const VIEW_CHANNEL = BigInt(0x400);
+const ADMINISTRATOR = BigInt(0x8);
+
+// Returns headers for Discord REST calls that require bot authentication
+const DISCORD_HEADERS = () => ({
+  Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`,
+  'Content-Type': 'application/json',
+});
+
 // Deferred response: acknowledge immediately, then edit with measured latency.
-// This avoids negative values caused by clock skew between Discord's servers and ours.
+// Avoids negative values that occur when comparing against Discord's snowflake
+// timestamp, which uses Discord's clock rather than ours.
 async function handlePing(interaction, res) {
   const start = Date.now();
   res.json({ type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE });
@@ -31,13 +44,16 @@ async function handleAdd(interaction, res) {
   const heroName = interaction.data.options.find((o) => o.name === 'hero')?.value;
   const role = interaction.data.options.find((o) => o.name === 'role')?.value;
 
+  // Options can be absent during an autocomplete interaction that fires before
+  // the user has filled in all fields — guard rather than crash
   if (!heroName || !role) {
     return res.json({
       type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
       data: { content: '❌ Please provide both a hero and a role.', flags: 64 },
     });
   }
-  // User ID lives under member.user in guild contexts, user at the top level in DMs
+
+  // member.user exists in guild contexts; user exists at the top level in DMs
   const userId = interaction.member?.user?.id ?? interaction.user?.id;
 
   if (!HEROES.includes(heroName)) {
@@ -58,6 +74,7 @@ async function handleAdd(interaction, res) {
     });
   }
 
+  // merge: true preserves any other fields on the document we don't own
   await userRef.set({ heroes: [...heroes, { name: heroName, role }] }, { merge: true });
   return res.json({
     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
@@ -87,16 +104,8 @@ async function handleRemove(interaction, res) {
   });
 }
 
-const DISCORD_HEADERS = () => ({
-  Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`,
-  'Content-Type': 'application/json',
-});
-
-const ROLE_EMOJI = { Best: '🟩', Secondary: '🟨' };
-const VIEW_CHANNEL = BigInt(0x400);
-const ADMINISTRATOR = BigInt(0x8);
-
-// Implements Discord's permission resolution to check if a member can view a channel.
+// Implements Discord's layered permission resolution:
+// base guild perms → @everyone channel overwrite → role overwrites → member overwrite
 function canViewChannel(member, channel, guild) {
   if (member.user.id === guild.owner_id) return true;
 
@@ -110,14 +119,12 @@ function canViewChannel(member, channel, guild) {
 
   if (perms & ADMINISTRATOR) return true;
 
-  // Apply @everyone channel overwrite
   const everyoneOW = channel.permission_overwrites?.find((o) => o.id === guild.id);
   if (everyoneOW) {
     perms &= ~BigInt(everyoneOW.deny);
     perms |= BigInt(everyoneOW.allow);
   }
 
-  // Apply role-based channel overwrites
   let roleAllow = BigInt(0), roleDeny = BigInt(0);
   for (const roleId of member.roles) {
     const ow = channel.permission_overwrites?.find((o) => o.id === roleId);
@@ -125,7 +132,6 @@ function canViewChannel(member, channel, guild) {
   }
   perms = (perms & ~roleDeny) | roleAllow;
 
-  // Apply member-specific channel overwrite
   const memberOW = channel.permission_overwrites?.find((o) => o.id === member.user.id);
   if (memberOW) {
     perms &= ~BigInt(memberOW.deny);
@@ -136,15 +142,17 @@ function canViewChannel(member, channel, guild) {
 }
 
 async function handleShowAll(interaction, res) {
+  // Defer immediately — fetching members + Firestore takes longer than Discord's 3s limit
   res.json({ type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE });
 
   const { channel_id, guild_id } = interaction;
   const headers = DISCORD_HEADERS();
 
-  // Fetch guild info, channel overwrites, and member list in parallel
+  // Fetch guild roles, channel overwrites, and member list in parallel
   const [guild, channel, members] = await Promise.all([
     fetch(`https://discord.com/api/v10/guilds/${guild_id}`, { headers }).then((r) => r.json()),
     fetch(`https://discord.com/api/v10/channels/${channel_id}`, { headers }).then((r) => r.json()),
+    // 1000 is Discord's maximum per page; sufficient for most servers
     fetch(`https://discord.com/api/v10/guilds/${guild_id}/members?limit=1000`, { headers }).then((r) => r.json()),
   ]);
 
@@ -152,15 +160,18 @@ async function handleShowAll(interaction, res) {
     (m) => !m.user.bot && canViewChannel(m, channel, guild)
   );
 
-  // Fetch all Firestore docs in parallel
+  // Batch all Firestore reads in parallel rather than sequentially
   const docs = await Promise.all(
     visibleMembers.map((m) => db.collection('users').doc(m.user.id).get())
   );
 
   const lines = [];
   visibleMembers.forEach((member, i) => {
+    // Only show Best-role heroes
     const heroes = (docs[i].exists ? docs[i].data().heroes ?? [] : []).map(normalize).filter((h) => h.role === 'Best');
     if (heroes.length === 0) return;
+
+    // Prefer server nickname → display name → username
     const name = member.nick ?? member.user.global_name ?? member.user.username;
     const list = heroes.map((h) => `${ROLE_EMOJI[h.role] ?? '⬜'} ${h.name}`).join(', ');
     lines.push(`**${name} (${heroes.length}):** ${list}`);
@@ -188,7 +199,7 @@ async function handlePool(interaction, res) {
   if (heroes.length === 0) {
     return res.json({
       type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-      // flags: 64 = ephemeral — only visible to the user who ran the command
+      // flags: 64 = ephemeral — only the invoking user sees the response
       data: { content: `**${username}** hasn't added any heroes to their pool yet.`, flags: 64 },
     });
   }
@@ -208,7 +219,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.DISCORD_PUBLIC_KEY), a
       return res.json({ type: InteractionResponseType.PONG });
     }
 
-    // Autocomplete: /add filters the full hero list; /remove filters only the user's current pool
+    // Autocomplete: /add searches the full hero list; /remove searches only the user's current pool
     if (interaction.type === InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE) {
       const focused = interaction.data.options.find((o) => o.focused);
       const query = focused?.value?.toLowerCase() ?? '';
@@ -222,16 +233,16 @@ app.post('/interactions', verifyKeyMiddleware(process.env.DISCORD_PUBLIC_KEY), a
 
       const choices = pool
         .filter((h) => h.toLowerCase().includes(query))
-        .slice(0, 25) // Discord caps autocomplete at 25 choices
+        .slice(0, 25) // Discord caps autocomplete responses at 25 entries
         .map((h) => ({ name: h, value: h }));
       return res.json({ type: 8, data: { choices } });
     }
 
     if (interaction.type === InteractionType.APPLICATION_COMMAND) {
       switch (interaction.data.name) {
-        case 'ping':   return handlePing(interaction, res);
-        case 'add':    return handleAdd(interaction, res);
-        case 'remove': return handleRemove(interaction, res);
+        case 'ping':    return handlePing(interaction, res);
+        case 'add':     return handleAdd(interaction, res);
+        case 'remove':  return handleRemove(interaction, res);
         case 'pool':    return handlePool(interaction, res);
         case 'showall': return handleShowAll(interaction, res);
       }
@@ -240,6 +251,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.DISCORD_PUBLIC_KEY), a
     return res.status(400).json({ error: 'Unknown interaction type' });
   } catch (err) {
     console.error(err);
+    // headersSent guard prevents double-response errors when a handler already replied
     if (!res.headersSent) {
       return res.json({
         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
