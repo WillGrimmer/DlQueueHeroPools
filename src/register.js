@@ -67,16 +67,22 @@ const commands = [
 ];
 
 async function register() {
-  const url = DISCORD_GUILD_ID
-    ? `https://discord.com/api/v10/applications/${DISCORD_APPLICATION_ID}/guilds/${DISCORD_GUILD_ID}/commands`
-    : `https://discord.com/api/v10/applications/${DISCORD_APPLICATION_ID}/commands`;
+  const globalUrl = `https://discord.com/api/v10/applications/${DISCORD_APPLICATION_ID}/commands`;
+  const headers = { Authorization: `Bot ${DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' };
 
-  const res = await fetch(url, {
+  // Clear guild-specific commands first to avoid duplicates showing in the original server
+  if (DISCORD_GUILD_ID) {
+    await fetch(
+      `https://discord.com/api/v10/applications/${DISCORD_APPLICATION_ID}/guilds/${DISCORD_GUILD_ID}/commands`,
+      { method: 'PUT', headers, body: '[]' }
+    );
+    console.log('Cleared guild commands');
+  }
+
+  // Register globally so commands appear in every server the bot is invited to
+  const res = await fetch(globalUrl, {
     method: 'PUT',
-    headers: {
-      Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify(commands),
   });
 
@@ -87,7 +93,8 @@ async function register() {
   }
 
   const data = await res.json();
-  console.log('Registered commands:', data.map((c) => `/${c.name}`).join(', '));
+  console.log('Registered global commands:', data.map((c) => `/${c.name}`).join(', '));
+  console.log('Note: global commands can take up to 1 hour to appear in all servers.');
 }
 
 register();
