@@ -87,6 +87,95 @@ async function handleRemove(interaction, res) {
   });
 }
 
+const DISCORD_HEADERS = () => ({
+  Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`,
+  'Content-Type': 'application/json',
+});
+
+const ROLE_EMOJI = { Best: '🟩', Secondary: '🟨' };
+const VIEW_CHANNEL = BigInt(0x400);
+const ADMINISTRATOR = BigInt(0x8);
+
+// Implements Discord's permission resolution to check if a member can view a channel.
+function canViewChannel(member, channel, guild) {
+  if (member.user.id === guild.owner_id) return true;
+
+  const everyoneRole = guild.roles.find((r) => r.id === guild.id);
+  let perms = BigInt(everyoneRole?.permissions ?? 0);
+
+  for (const roleId of member.roles) {
+    const role = guild.roles.find((r) => r.id === roleId);
+    if (role) perms |= BigInt(role.permissions);
+  }
+
+  if (perms & ADMINISTRATOR) return true;
+
+  // Apply @everyone channel overwrite
+  const everyoneOW = channel.permission_overwrites?.find((o) => o.id === guild.id);
+  if (everyoneOW) {
+    perms &= ~BigInt(everyoneOW.deny);
+    perms |= BigInt(everyoneOW.allow);
+  }
+
+  // Apply role-based channel overwrites
+  let roleAllow = BigInt(0), roleDeny = BigInt(0);
+  for (const roleId of member.roles) {
+    const ow = channel.permission_overwrites?.find((o) => o.id === roleId);
+    if (ow) { roleAllow |= BigInt(ow.allow); roleDeny |= BigInt(ow.deny); }
+  }
+  perms = (perms & ~roleDeny) | roleAllow;
+
+  // Apply member-specific channel overwrite
+  const memberOW = channel.permission_overwrites?.find((o) => o.id === member.user.id);
+  if (memberOW) {
+    perms &= ~BigInt(memberOW.deny);
+    perms |= BigInt(memberOW.allow);
+  }
+
+  return Boolean(perms & VIEW_CHANNEL);
+}
+
+async function handleShowAll(interaction, res) {
+  res.json({ type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE });
+
+  const { channel_id, guild_id } = interaction;
+  const headers = DISCORD_HEADERS();
+
+  // Fetch guild info, channel overwrites, and member list in parallel
+  const [guild, channel, members] = await Promise.all([
+    fetch(`https://discord.com/api/v10/guilds/${guild_id}`, { headers }).then((r) => r.json()),
+    fetch(`https://discord.com/api/v10/channels/${channel_id}`, { headers }).then((r) => r.json()),
+    fetch(`https://discord.com/api/v10/guilds/${guild_id}/members?limit=1000`, { headers }).then((r) => r.json()),
+  ]);
+
+  const visibleMembers = members.filter(
+    (m) => !m.user.bot && canViewChannel(m, channel, guild)
+  );
+
+  // Fetch all Firestore docs in parallel
+  const docs = await Promise.all(
+    visibleMembers.map((m) => db.collection('users').doc(m.user.id).get())
+  );
+
+  const lines = [];
+  visibleMembers.forEach((member, i) => {
+    const heroes = (docs[i].exists ? docs[i].data().heroes ?? [] : []).map(normalize);
+    if (heroes.length === 0) return;
+    const name = member.nick ?? member.user.global_name ?? member.user.username;
+    const list = heroes.map((h) => `${ROLE_EMOJI[h.role] ?? '⬜'} ${h.name}`).join(', ');
+    lines.push(`**${name} (${heroes.length}):** ${list}`);
+  });
+
+  const content = lines.length > 0
+    ? lines.join('\n')
+    : 'No one in this channel has added any heroes yet.';
+
+  await fetch(
+    `https://discord.com/api/v10/webhooks/${process.env.DISCORD_APPLICATION_ID}/${interaction.token}/messages/@original`,
+    { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) }
+  );
+}
+
 async function handlePool(interaction, res) {
   const targetId = interaction.data.options[0].value;
   // resolved.users is populated by Discord with full user objects for USER-type options
@@ -104,7 +193,6 @@ async function handlePool(interaction, res) {
     });
   }
 
-  const ROLE_EMOJI = { Best: '🟩', Secondary: '🟨' };
   const list = heroes.map((h) => `${ROLE_EMOJI[h.role] ?? '⬜'} ${h.name}`).join('\n');
   return res.json({
     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
@@ -144,7 +232,8 @@ app.post('/interactions', verifyKeyMiddleware(process.env.DISCORD_PUBLIC_KEY), a
         case 'ping':   return handlePing(interaction, res);
         case 'add':    return handleAdd(interaction, res);
         case 'remove': return handleRemove(interaction, res);
-        case 'pool':   return handlePool(interaction, res);
+        case 'pool':    return handlePool(interaction, res);
+        case 'showall': return handleShowAll(interaction, res);
       }
     }
 

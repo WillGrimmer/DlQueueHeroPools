@@ -49,6 +49,10 @@ const commands = [
     ],
   },
   {
+    name: 'showall',
+    description: 'Show hero pools for all non-bot members who can see this channel',
+  },
+  {
     name: 'pool',
     description: "View a user's hero pool",
     options: [
