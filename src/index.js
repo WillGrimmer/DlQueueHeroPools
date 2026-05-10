@@ -181,7 +181,7 @@ async function handleShowAll(interaction, res) {
   });
 
   const content = lines.length > 0
-    ? lines.join('\n')
+    ? `\`\`\`\n${lines.join('\n')}\n\`\`\``
     : 'No one in this channel has added any heroes yet.';
 
   await fetch(
@@ -261,7 +261,7 @@ async function handlePool(interaction, res) {
 
   return res.json({
     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-    data: { content: `**${username}'s pool:**\n${lines.join('\n')}`, flags: 64 },
+    data: { content: `**${username}'s pool:**\n\`\`\`\n${lines.join('\n')}\n\`\`\``, flags: 64 },
   });
 }
 
