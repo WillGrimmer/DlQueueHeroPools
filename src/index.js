@@ -3,6 +3,7 @@ const express = require('express');
 const { InteractionType, InteractionResponseType, verifyKeyMiddleware } = require('discord-interactions');
 const db = require('./firebase');
 const HEROES = require('./heroes');
+const { loadEmojis, heroEmoji } = require('./emojis');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -176,7 +177,7 @@ async function handleShowAll(interaction, res) {
     const name = member.nick ?? member.user.global_name ?? member.user.username;
     const gameRoles = docs[i].exists ? docs[i].data().gameRoles ?? [] : [];
     const roleTag = gameRoles.length > 0 ? `  ${gameRoles.join(', ')}` : '';
-    sections.push(`**${name}**${roleTag}\n${heroes.map((h) => h.name).join(', ')}`);
+    sections.push(`**${name}**${roleTag}\n${heroes.map((h) => `${heroEmoji(h.name)} ${h.name}`).join('  ')}`);
   });
 
   const body = sections.length > 0
@@ -257,8 +258,8 @@ async function handlePool(interaction, res) {
   if (heroes.length > 0) {
     const best = heroes.filter((h) => h.role === 'Best');
     const secondary = heroes.filter((h) => h.role === 'Secondary');
-    if (best.length > 0) fields.push({ name: '🟩 Best', value: best.map((h) => h.name).join('\n'), inline: true });
-    if (secondary.length > 0) fields.push({ name: '🟨 Secondary', value: secondary.map((h) => h.name).join('\n'), inline: true });
+    if (best.length > 0) fields.push({ name: '🟩 Best', value: best.map((h) => `${heroEmoji(h.name)} ${h.name}`).join('\n'), inline: true });
+    if (secondary.length > 0) fields.push({ name: '🟨 Secondary', value: secondary.map((h) => `${heroEmoji(h.name)} ${h.name}`).join('\n'), inline: true });
   }
 
   return res.json({
@@ -323,5 +324,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.DISCORD_PUBLIC_KEY), a
     }
   }
 });
+
+loadEmojis().catch(console.error);
 
 app.listen(PORT, () => console.log(`Bot listening on port ${PORT}`));
