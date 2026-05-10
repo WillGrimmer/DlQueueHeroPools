@@ -166,7 +166,7 @@ async function handleShowAll(interaction, res) {
     visibleMembers.map((m) => db.collection('users').doc(m.user.id).get())
   );
 
-  const lines = [];
+  const fields = [];
   visibleMembers.forEach((member, i) => {
     // Only show Best-role heroes
     const heroes = (docs[i].exists ? docs[i].data().heroes ?? [] : []).map(normalize).filter((h) => h.role === 'Best');
@@ -176,17 +176,20 @@ async function handleShowAll(interaction, res) {
     const name = member.nick ?? member.user.global_name ?? member.user.username;
     const gameRoles = docs[i].exists ? docs[i].data().gameRoles ?? [] : [];
     const roleTag = gameRoles.length > 0 ? ` [${gameRoles.join(', ')}]` : '';
-    const list = heroes.map((h) => `${ROLE_EMOJI[h.role] ?? '⬜'} ${h.name}`).join(', ');
-    lines.push(`**${name}${roleTag} (${heroes.length}):** ${list}`);
+    fields.push({
+      name: `${name}${roleTag}`,
+      value: heroes.map((h) => h.name).join('\n'),
+      inline: true,
+    });
   });
 
-  const content = lines.length > 0
-    ? `\`\`\`\n${lines.join('\n')}\n\`\`\``
-    : 'No one in this channel has added any heroes yet.';
+  const body = fields.length > 0
+    ? { embeds: [{ title: 'Hero Pools', fields, color: 0x5865f2 }] }
+    : { content: 'No one in this channel has added any heroes yet.' };
 
   await fetch(
     `https://discord.com/api/v10/webhooks/${process.env.DISCORD_APPLICATION_ID}/${interaction.token}/messages/@original`,
-    { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) }
+    { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
   );
 }
 
@@ -247,21 +250,27 @@ async function handlePool(interaction, res) {
   if (heroes.length === 0 && gameRoles.length === 0) {
     return res.json({
       type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-      // flags: 64 = ephemeral — only the invoking user sees the response
       data: { content: `**${username}** hasn't set up their pool yet.`, flags: 64 },
     });
   }
 
-  const lines = [];
-  if (gameRoles.length > 0) lines.push(`**Roles:** ${gameRoles.join(', ')}`);
+  const fields = [];
+  if (gameRoles.length > 0) {
+    fields.push({ name: 'Roles', value: gameRoles.join(', '), inline: false });
+  }
   if (heroes.length > 0) {
-    lines.push(`**Heroes (${heroes.length}):**`);
-    heroes.forEach((h) => lines.push(`${ROLE_EMOJI[h.role] ?? '⬜'} ${h.name}`));
+    const best = heroes.filter((h) => h.role === 'Best');
+    const secondary = heroes.filter((h) => h.role === 'Secondary');
+    if (best.length > 0) fields.push({ name: '🟩 Best', value: best.map((h) => h.name).join('\n'), inline: true });
+    if (secondary.length > 0) fields.push({ name: '🟨 Secondary', value: secondary.map((h) => h.name).join('\n'), inline: true });
   }
 
   return res.json({
     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-    data: { content: `**${username}'s pool:**\n\`\`\`\n${lines.join('\n')}\n\`\`\``, flags: 64 },
+    data: {
+      flags: 64,
+      embeds: [{ title: `${username}'s Pool`, fields, color: 0x5865f2 }],
+    },
   });
 }
 
