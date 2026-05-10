@@ -166,7 +166,7 @@ async function handleShowAll(interaction, res) {
     visibleMembers.map((m) => db.collection('users').doc(m.user.id).get())
   );
 
-  const fields = [];
+  const sections = [];
   visibleMembers.forEach((member, i) => {
     // Only show Best-role heroes
     const heroes = (docs[i].exists ? docs[i].data().heroes ?? [] : []).map(normalize).filter((h) => h.role === 'Best');
@@ -175,16 +175,12 @@ async function handleShowAll(interaction, res) {
     // Prefer server nickname → display name → username
     const name = member.nick ?? member.user.global_name ?? member.user.username;
     const gameRoles = docs[i].exists ? docs[i].data().gameRoles ?? [] : [];
-    const roleTag = gameRoles.length > 0 ? ` [${gameRoles.join(', ')}]` : '';
-    fields.push({
-      name: `${name}${roleTag}`,
-      value: heroes.map((h) => h.name).join('\n'),
-      inline: true,
-    });
+    const roleTag = gameRoles.length > 0 ? `  ${gameRoles.join(', ')}` : '';
+    sections.push(`**${name}**${roleTag}\n${heroes.map((h) => h.name).join(', ')}`);
   });
 
-  const body = fields.length > 0
-    ? { embeds: [{ title: 'Hero Pools', fields, color: 0x5865f2 }] }
+  const body = sections.length > 0
+    ? { embeds: [{ title: 'Hero Pools', description: sections.join('\n\n'), color: 0x5865f2 }] }
     : { content: 'No one in this channel has added any heroes yet.' };
 
   await fetch(
