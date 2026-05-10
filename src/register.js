@@ -49,6 +49,44 @@ const commands = [
     ],
   },
   {
+    name: 'addrole',
+    description: 'Add a game role to your profile',
+    options: [
+      {
+        name: 'role',
+        description: 'The role you play',
+        type: 3, // STRING
+        required: true,
+        choices: [
+          { name: 'Frontline', value: 'Frontline' },
+          { name: 'M1', value: 'M1' },
+          { name: 'Spirit Carry', value: 'Spirit Carry' },
+          { name: 'Support', value: 'Support' },
+          { name: 'Pick', value: 'Pick' },
+        ],
+      },
+    ],
+  },
+  {
+    name: 'removerole',
+    description: 'Remove a game role from your profile',
+    options: [
+      {
+        name: 'role',
+        description: 'The role to remove',
+        type: 3, // STRING
+        required: true,
+        choices: [
+          { name: 'Frontline', value: 'Frontline' },
+          { name: 'M1', value: 'M1' },
+          { name: 'Spirit Carry', value: 'Spirit Carry' },
+          { name: 'Support', value: 'Support' },
+          { name: 'Pick', value: 'Pick' },
+        ],
+      },
+    ],
+  },
+  {
     name: 'showall',
     description: 'Show hero pools for all non-bot members who can see this channel',
   },

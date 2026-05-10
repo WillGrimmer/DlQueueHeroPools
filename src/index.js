@@ -12,6 +12,7 @@ const PORT = process.env.PORT || 3000;
 const normalize = (h) => (typeof h === 'string' ? { name: h, role: null } : h);
 
 const ROLE_EMOJI = { Best: '🟩', Secondary: '🟨' };
+const GAME_ROLES = ['Frontline', 'M1', 'Spirit Carry', 'Support', 'Pick'];
 
 // Permission bits used in canViewChannel
 const VIEW_CHANNEL = BigInt(0x400);
@@ -173,8 +174,10 @@ async function handleShowAll(interaction, res) {
 
     // Prefer server nickname → display name → username
     const name = member.nick ?? member.user.global_name ?? member.user.username;
+    const gameRoles = docs[i].exists ? docs[i].data().gameRoles ?? [] : [];
+    const roleTag = gameRoles.length > 0 ? ` [${gameRoles.join(', ')}]` : '';
     const list = heroes.map((h) => `${ROLE_EMOJI[h.role] ?? '⬜'} ${h.name}`).join(', ');
-    lines.push(`**${name} (${heroes.length}):** ${list}`);
+    lines.push(`**${name}${roleTag} (${heroes.length}):** ${list}`);
   });
 
   const content = lines.length > 0
@@ -187,6 +190,50 @@ async function handleShowAll(interaction, res) {
   );
 }
 
+async function handleAddRole(interaction, res) {
+  const gameRole = interaction.data.options[0].value;
+  const userId = interaction.member?.user?.id ?? interaction.user?.id;
+
+  const userRef = db.collection('users').doc(userId);
+  const doc = await userRef.get();
+  const roles = doc.exists ? doc.data().gameRoles ?? [] : [];
+
+  if (roles.includes(gameRole)) {
+    return res.json({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: { content: `⚠️ You already have **${gameRole}** in your roles.`, flags: 64 },
+    });
+  }
+
+  await userRef.set({ gameRoles: [...roles, gameRole] }, { merge: true });
+  return res.json({
+    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+    data: { content: `✅ Added **${gameRole}** to your roles.`, flags: 64 },
+  });
+}
+
+async function handleRemoveRole(interaction, res) {
+  const gameRole = interaction.data.options[0].value;
+  const userId = interaction.member?.user?.id ?? interaction.user?.id;
+
+  const userRef = db.collection('users').doc(userId);
+  const doc = await userRef.get();
+  const roles = doc.exists ? doc.data().gameRoles ?? [] : [];
+
+  if (!roles.includes(gameRole)) {
+    return res.json({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: { content: `⚠️ **${gameRole}** is not in your roles.`, flags: 64 },
+    });
+  }
+
+  await userRef.set({ gameRoles: roles.filter((r) => r !== gameRole) }, { merge: true });
+  return res.json({
+    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+    data: { content: `🗑️ Removed **${gameRole}** from your roles.`, flags: 64 },
+  });
+}
+
 async function handlePool(interaction, res) {
   const targetId = interaction.data.options[0].value;
   // resolved.users is populated by Discord with full user objects for USER-type options
@@ -195,19 +242,26 @@ async function handlePool(interaction, res) {
 
   const doc = await db.collection('users').doc(targetId).get();
   const heroes = (doc.exists ? doc.data().heroes ?? [] : []).map(normalize);
+  const gameRoles = doc.exists ? doc.data().gameRoles ?? [] : [];
 
-  if (heroes.length === 0) {
+  if (heroes.length === 0 && gameRoles.length === 0) {
     return res.json({
       type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
       // flags: 64 = ephemeral — only the invoking user sees the response
-      data: { content: `**${username}** hasn't added any heroes to their pool yet.`, flags: 64 },
+      data: { content: `**${username}** hasn't set up their pool yet.`, flags: 64 },
     });
   }
 
-  const list = heroes.map((h) => `${ROLE_EMOJI[h.role] ?? '⬜'} ${h.name}`).join('\n');
+  const lines = [];
+  if (gameRoles.length > 0) lines.push(`**Roles:** ${gameRoles.join(', ')}`);
+  if (heroes.length > 0) {
+    lines.push(`**Heroes (${heroes.length}):**`);
+    heroes.forEach((h) => lines.push(`${ROLE_EMOJI[h.role] ?? '⬜'} ${h.name}`));
+  }
+
   return res.json({
     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-    data: { content: `**${username}'s hero pool (${heroes.length}):**\n${list}`, flags: 64 },
+    data: { content: `**${username}'s pool:**\n${lines.join('\n')}`, flags: 64 },
   });
 }
 
@@ -242,11 +296,13 @@ app.post('/interactions', verifyKeyMiddleware(process.env.DISCORD_PUBLIC_KEY), a
 
     if (interaction.type === InteractionType.APPLICATION_COMMAND) {
       switch (interaction.data.name) {
-        case 'ping':    return await handlePing(interaction, res);
-        case 'add':     return await handleAdd(interaction, res);
-        case 'remove':  return await handleRemove(interaction, res);
-        case 'pool':    return await handlePool(interaction, res);
-        case 'showall': return await handleShowAll(interaction, res);
+        case 'ping':        return await handlePing(interaction, res);
+        case 'add':         return await handleAdd(interaction, res);
+        case 'remove':      return await handleRemove(interaction, res);
+        case 'addrole':     return await handleAddRole(interaction, res);
+        case 'removerole':  return await handleRemoveRole(interaction, res);
+        case 'pool':        return await handlePool(interaction, res);
+        case 'showall':     return await handleShowAll(interaction, res);
       }
     }
 
