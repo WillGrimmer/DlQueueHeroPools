@@ -167,7 +167,7 @@ async function handleShowAll(interaction, res) {
     visibleMembers.map((m) => db.collection('users').doc(m.user.id).get())
   );
 
-  const sections = [];
+  const entries = [];
   visibleMembers.forEach((member, i) => {
     // Only show Best-role heroes
     const heroes = (docs[i].exists ? docs[i].data().heroes ?? [] : []).map(normalize).filter((h) => h.role === 'Best');
@@ -177,8 +177,11 @@ async function handleShowAll(interaction, res) {
     const name = member.nick ?? member.user.global_name ?? member.user.username;
     const gameRoles = docs[i].exists ? docs[i].data().gameRoles ?? [] : [];
     const roleTag = gameRoles.length > 0 ? `  ${gameRoles.join(', ')}` : '';
-    sections.push(`**${name}**${roleTag}\n${heroes.map((h) => `${heroEmoji(h.name)} ${h.name}`).join('  ')}`);
+    entries.push({ name, text: `**${name}**${roleTag}\n${heroes.map((h) => `${heroEmoji(h.name)} ${h.name}`).join('  ')}` });
   });
+
+  entries.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  const sections = entries.map((e) => e.text);
 
   const body = sections.length > 0
     ? { embeds: [{ title: 'Hero Pools', description: sections.join('\n\n'), color: 0x5865f2 }] }
